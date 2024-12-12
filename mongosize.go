@@ -13,6 +13,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+func getHtmlPage(url, userAgent string) ([]byte, int, error) {
+
+}
+
 func main() {
 	var connection string
 
@@ -22,7 +26,8 @@ func main() {
 	flag.Parse()
 
 	//var collection *mongo.Collection
-	var dbs []string
+	var dbs_name []string
+	var cols_name []string
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -32,15 +37,33 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dbs, err = client.ListDatabaseNames(
+	dbs_name, err = client.ListDatabaseNames(
 		ctx,
 		bson.D{primitive.E{Key: "empty", Value: false}})
 	if err != nil {
 		log.Panic(err)
 	}
+	dbname := dbs_name[0]
+	db := client.Database(dbname)
 
-	for _, db := range dbs {
-		fmt.Println(db)
+	cols_name, err = db.ListCollectionNames(ctx, bson.D{{}})
+	if err != nil {
+		log.Panic(err)
 	}
+
+	result := db.RunCommand(ctx, bson.M{"collStats": cols_name[0]})
+
+	var document bson.M
+	err = result.Decode(&document)
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Database: %s, collection: %s", dbname, cols_name[0])
+	fmt.Printf(" - Collection size: %v Bytes\n", document["size"])
+	fmt.Printf(" - Average object size: %v Bytes\n", document["avgObjSize"])
+	fmt.Printf(" - Storage size: %v Bytes\n", document["storageSize"])
+	fmt.Printf(" - Total index size: %v Bytes\n", document["totalIndexSize"])
 
 }
