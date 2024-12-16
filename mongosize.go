@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strconv"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -32,17 +32,20 @@ func byteCount(bytesize int64) string {
 
 func main() {
 	var connection string
+	var mode string
 
 	// Ключи для командной строки
 	flag.StringVar(&connection, "connection", "", "URI of Mongodb server")
+	flag.StringVar(&mode, "mode", "d", "Output mode: 'd' - DB size, 'c' - collection size, 'i' - collection indexes")
 
 	flag.Parse()
 
-	//var collection *mongo.Collection
 	var dbs_name []string
 	var cols_name []string
 	var totalSizeBite int64
 	var totalStorageSizeByte int64
+	var dbSizeBite int64
+	var dbStorageSizeByte int64
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -67,6 +70,9 @@ func main() {
 			log.Panic(err)
 		}
 
+		dbSizeBite = 0
+		dbStorageSizeByte = 0
+
 		for _, coll := range cols_name {
 			result := db.RunCommand(ctx, bson.M{"collStats": coll})
 
@@ -77,19 +83,24 @@ func main() {
 				panic(err)
 			}
 
-			sizeStr, _ := document["size"].(string)
-			fmt.Printf("type: %v\n", ok)
-			sizeByte, _ := strconv.Atoi(sizeStr)
+			sizeByte, _ := document["size"].(int32)
 			totalSizeBite += int64(sizeByte)
-			storageSizeStr, _ := document["storageSize"].(string)
-			storageSizeByte, _ := strconv.Atoi(storageSizeStr)
+			dbSizeBite += int64(sizeByte)
+			storageSizeByte, _ := document["storageSize"].(int32)
 			totalStorageSizeByte += int64(storageSizeByte)
-			//fmt.Printf(" > Collection: %s\n", coll)
-			//fmt.Printf("   - Collection size: %s\n", byteCount(int64(sizeByte)))
-			//fmt.Printf("   - Storage size: %s\n", byteCount(int64(storageSizeByte)))
+			dbStorageSizeByte += int64(storageSizeByte)
+			if strings.Contains("c", mode) {
+				fmt.Printf(" > Collection: %s\n", coll)
+				//fmt.Printf("   - Collection size: %s\n", byteCount(int64(sizeByte)))
+				//fmt.Printf("   - Storage size: %s\n", byteCount(int64(storageSizeByte)))
+			}
+		}
+		if strings.Contains("d", mode) {
+			fmt.Printf("   - DB size: %s\n", byteCount(dbSizeBite))
+			fmt.Printf("   - DB Storage size: %s\n", byteCount(dbStorageSizeByte))
 		}
 	}
-
+	fmt.Printf("--------------------------------------\n")
 	fmt.Printf("Total collection size: %s\n", byteCount(totalSizeBite))
 	fmt.Printf("Total storage size: %s\n", byteCount(totalStorageSizeByte))
 
