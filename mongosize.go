@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strings"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -32,11 +32,14 @@ func byteCount(bytesize int64) string {
 
 func main() {
 	var connection string
-	var mode string
+	var dbpattern string
+	var sizeOnDisk string
 
 	// Ключи для командной строки
 	flag.StringVar(&connection, "connection", "", "URI of Mongodb server")
-	flag.StringVar(&mode, "mode", "d", "Output mode: 'd' - DB size, 'c' - collection size, 'i' - collection indexes")
+	flag.StringVar(&dbpattern, "dbpattern", "", "DBname filter in REgex")
+	flag.StringVar(&sizeOnDisk, "size", "", "Minimum Collection Size on Disk in bytes")
+	iscolls := flag.Bool("colls", false, "Output collection size")
 
 	flag.Parse()
 
@@ -55,15 +58,27 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dbs_name, err = client.ListDatabaseNames(
-		ctx,
-		bson.D{primitive.E{Key: "empty", Value: false}})
+
+	filter := bson.M{}
+	filter["empty"] = false
+	if len(dbpattern) > 0 {
+		filter["name"] = primitive.Regex{Pattern: dbpattern}
+	}
+	if len(sizeOnDisk) > 0 {
+		minsize, err := strconv.ParseInt(sizeOnDisk, 10, 32)
+		if err != nil {
+			log.Panic(err)
+		}
+		filter["sizeOnDisk"] = int32(minsize)
+	}
+	fmt.Printf("> Filter: %s\n", filter)
+	dbs_name, err = client.ListDatabaseNames(ctx, filter)
 	if err != nil {
 		log.Panic(err)
 	}
 	for _, dbname := range dbs_name {
 		db := client.Database(dbname)
-		fmt.Printf("Database: %s\n", dbname)
+		fmt.Printf("> Database: %s\n", dbname)
 
 		cols_name, err = db.ListCollectionNames(ctx, bson.D{{}})
 		if err != nil {
@@ -89,19 +104,23 @@ func main() {
 			storageSizeByte, _ := document["storageSize"].(int32)
 			totalStorageSizeByte += int64(storageSizeByte)
 			dbStorageSizeByte += int64(storageSizeByte)
-			if strings.Contains("c", mode) {
-				fmt.Printf(" > Collection: %s\n", coll)
-				//fmt.Printf("   - Collection size: %s\n", byteCount(int64(sizeByte)))
-				//fmt.Printf("   - Storage size: %s\n", byteCount(int64(storageSizeByte)))
+			if *iscolls {
+				fmt.Printf("      > Collection: %s\n", coll)
+				fmt.Printf("         - Size: %s\n", byteCount(int64(sizeByte)))
+				fmt.Printf("         - Storage size: %s\n", byteCount(int64(storageSizeByte)))
 			}
 		}
-		if strings.Contains("d", mode) {
-			fmt.Printf("   - DB size: %s\n", byteCount(dbSizeBite))
-			fmt.Printf("   - DB Storage size: %s\n", byteCount(dbStorageSizeByte))
-		}
+		fmt.Printf("   - DB size: %s\n", byteCount(dbSizeBite))
+		fmt.Printf("   - DB Storage size: %s\n", byteCount(dbStorageSizeByte))
 	}
 	fmt.Printf("--------------------------------------\n")
 	fmt.Printf("Total collection size: %s\n", byteCount(totalSizeBite))
 	fmt.Printf("Total storage size: %s\n", byteCount(totalStorageSizeByte))
 
+	err = client.Disconnect(ctx)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("\n\nConnection to MongoDB closed.\n")
 }
